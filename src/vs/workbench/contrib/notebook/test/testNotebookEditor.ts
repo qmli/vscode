@@ -347,5 +347,5 @@ export function createNotebookCellList(instantiationService: TestInstantiationSe
 }
 
 export function valueBytesFromString(value: string): VSBuffer {
-	return VSBuffer.wrap(new TextEncoder().encode(value));
+	return VSBuffer.fromString(value);
 }
