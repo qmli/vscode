@@ -255,10 +255,7 @@ export class RPCProtocol extends Disposable implements IRPCProtocol {
 				break;
 			}
 			case MessageType.ReplyOKJSON: {
-				let value = MessageIO.deserializeReplyOKJSON(buff);
-				if (this._uriTransformer) {
-					value = transformIncomingURIs(value, this._uriTransformer);
-				}
+				const value = MessageIO.deserializeReplyOKJSON(buff, this._uriTransformer);
 				this._receiveReply(msgLength, req, value);
 				break;
 			}
@@ -553,9 +550,9 @@ interface SerializedRequestArguments {
 
 class MessageIO {
 
-	public static serializeRequestArguments(args: any[], replacer: JSONStringifyReplacer | null): SerializedRequestArguments {
+	private static serializeWithBufferRefs(obj: any, replacer: JSONStringifyReplacer | null): { value: string, referencedBuffers: VSBuffer[] | undefined } {
 		const foundBuffers: VSBuffer[] = [];
-		const serializedArgs = JSON.stringify(args, (key, value) => {
+		const serialized = JSON.stringify(obj, (key, value) => {
 			if (typeof value === 'undefined') {
 				return { [refSymbolName]: -1 }; // JSON.stringify normally converts to 'null'
 			} else if (typeof value === 'object') {
@@ -570,8 +567,16 @@ class MessageIO {
 			return value;
 		});
 		return {
-			args: serializedArgs,
-			buffers: foundBuffers
+			value: serialized,
+			referencedBuffers: foundBuffers
+		};
+	}
+
+	public static serializeRequestArguments(args: any[], replacer: JSONStringifyReplacer | null): SerializedRequestArguments {
+		const { value, referencedBuffers } = this.serializeWithBufferRefs(args, replacer);
+		return {
+			args: value,
+			buffers: referencedBuffers
 		};
 	}
 
@@ -604,18 +609,8 @@ class MessageIO {
 		return result.buffer;
 	}
 
-	public static deserializeRequest(buff: MessageBuffer, uriTransformer: IURITransformer | null): { rpcId: number; method: string; args: any[]; } {
-		const rpcId = buff.readUInt8();
-		const method = buff.readShortString();
-		const rawargs = buff.readLongString();
-		const bufferCount = buff.readUInt8();
-
-		const buffers: VSBuffer[] = [];
-		for (let i = 0; i < bufferCount; ++i) {
-			buffers.push(buff.readVSBuffer());
-		}
-
-		const args = JSON.parse(rawargs, (_key, value) => {
+	private static parseJsonAndRestoreBufferRefs(jsonString: string, buffers: VSBuffer[], uriTransformer: IURITransformer | null): any {
+		return JSON.parse(jsonString, (_key, value) => {
 			if (value) {
 				const ref = value[refSymbolName];
 				if (typeof ref === 'number') {
@@ -628,7 +623,20 @@ class MessageIO {
 			}
 			return value;
 		});
+	}
 
+	public static deserializeRequest(buff: MessageBuffer, uriTransformer: IURITransformer | null): { rpcId: number; method: string; args: any[]; } {
+		const rpcId = buff.readUInt8();
+		const method = buff.readShortString();
+		const rawargs = buff.readLongString();
+		const bufferCount = buff.readUInt8();
+
+		const buffers: VSBuffer[] = [];
+		for (let i = 0; i < bufferCount; ++i) {
+			buffers.push(buff.readVSBuffer());
+		}
+
+		const args = MessageIO.parseJsonAndRestoreBufferRefs(rawargs, buffers, uriTransformer);
 		return {
 			rpcId: rpcId,
 			method: method,
@@ -651,7 +659,9 @@ class MessageIO {
 		if (res instanceof VSBuffer) {
 			return this._serializeReplyOKVSBuffer(req, res);
 		}
-		return this._serializeReplyOKJSON(req, safeStringify(res, replacer));
+
+		const { value, referencedBuffers } = this.serializeWithBufferRefs(res, replacer);
+		return this._serializeReplyOKJSON(req, value, referencedBuffers);
 	}
 
 	private static _serializeReplyOKEmpty(req: number): VSBuffer {
@@ -671,20 +681,39 @@ class MessageIO {
 		return buff.readVSBuffer();
 	}
 
-	private static _serializeReplyOKJSON(req: number, res: string): VSBuffer {
+	private static _serializeReplyOKJSON(req: number, res: string, buffers: VSBuffer[] | undefined): VSBuffer {
 		const resBuff = VSBuffer.fromString(res);
 
 		let len = 0;
+		len += MessageBuffer.sizeUInt8(); // buffer count
 		len += MessageBuffer.sizeLongString(resBuff);
+		if (buffers) {
+			for (const buffer of buffers) {
+				len += MessageBuffer.sizeVSBuffer(buffer);
+			}
+		}
 
 		let result = MessageBuffer.alloc(MessageType.ReplyOKJSON, req, len);
+		result.writeUInt8(buffers?.length ?? 0);
 		result.writeLongString(resBuff);
+		if (buffers) {
+			for (const buffer of buffers) {
+				result.writeBuffer(buffer);
+			}
+		}
 		return result.buffer;
 	}
 
-	public static deserializeReplyOKJSON(buff: MessageBuffer): any {
+	public static deserializeReplyOKJSON(buff: MessageBuffer, uriTransformer: IURITransformer | null): any {
+		const bufferCount = buff.readUInt8();
 		const res = buff.readLongString();
-		return JSON.parse(res);
+
+		const buffers: VSBuffer[] = [];
+		for (let i = 0; i < bufferCount; ++i) {
+			buffers.push(buff.readVSBuffer());
+		}
+
+		return MessageIO.parseJsonAndRestoreBufferRefs(res, buffers, uriTransformer);
 	}
 
 	public static serializeReplyErr(req: number, err: any): VSBuffer {
