@@ -370,7 +370,7 @@ class CellInfoContentProvider {
 		const sameStream = !outputs.find(op => op.mime !== mime);
 
 		if (sameStream) {
-			return outputs.map(opit => new TextDecoder().decode(opit.data)).join('');
+			return outputs.map(opit => new TextDecoder().decode(opit.data.buffer)).join('');
 		} else {
 			return null;
 		}
@@ -411,7 +411,7 @@ class CellInfoContentProvider {
 					metadata: output.metadata,
 					outputItems: output.outputs.map(opit => ({
 						mimeType: opit.mime,
-						data: new TextDecoder().decode(opit.data)
+						data: new TextDecoder().decode(opit.data.buffer)
 					}))
 				})));
 				const edits = format(content, undefined, {});

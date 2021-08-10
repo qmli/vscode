@@ -1938,7 +1938,7 @@ export interface INotebookDocumentsAndEditorsDelta {
 
 export interface NotebookOutputItemDto {
 	readonly mime: string;
-	readonly valueBytes: number[]; // todo@jrieken ugly, should be VSBuffer
+	readonly valueBytes: VSBuffer;
 }
 
 export interface NotebookOutputDto {
