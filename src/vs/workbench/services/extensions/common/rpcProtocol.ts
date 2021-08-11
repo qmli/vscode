@@ -542,12 +542,13 @@ class MessageBuffer {
 }
 
 const refSymbolName = '$$ref$$';
+const undefinedRef = { [refSymbolName]: -1 } as const;
 
-export function stringifyJsonWithBufferRefs(obj: any, replacer: JSONStringifyReplacer | null, useSafeStringify = false): { value: string, referencedBuffers: VSBuffer[] | undefined } {
+export function stringifyJsonWithBufferRefs(obj: any, replacer: JSONStringifyReplacer | null, useSafeStringify = false): { value: string, referencedBuffers: VSBuffer[] } {
 	const foundBuffers: VSBuffer[] = [];
 	const serialized = (useSafeStringify ? safeStringify : JSON.stringify)(obj, (key, value) => {
 		if (typeof value === 'undefined') {
-			return { [refSymbolName]: -1 }; // JSON.stringify normally converts to 'null'
+			return undefinedRef; // JSON.stringify normally converts 'undefined' to 'null'
 		} else if (typeof value === 'object') {
 			if (value instanceof VSBuffer) {
 				const bufferIndex = foundBuffers.push(value) - 1;
@@ -583,7 +584,7 @@ export function parseJsonAndRestoreBufferRefs(jsonString: string, buffers: VSBuf
 
 interface SerializedRequestArguments {
 	readonly args: string;
-	readonly buffers: readonly VSBuffer[] | undefined;
+	readonly buffers: readonly VSBuffer[];
 }
 
 class MessageIO {
@@ -605,21 +606,17 @@ class MessageIO {
 		len += MessageBuffer.sizeShortString(methodBuff);
 		len += MessageBuffer.sizeLongString(argsBuff);
 		len += MessageBuffer.sizeUInt8(); // buffer count
-		if (serializedArgs.buffers) {
-			for (const buffer of serializedArgs.buffers) {
-				len += MessageBuffer.sizeVSBuffer(buffer);
-			}
+		for (const buffer of serializedArgs.buffers) {
+			len += MessageBuffer.sizeVSBuffer(buffer);
 		}
 
 		let result = MessageBuffer.alloc(usesCancellationToken ? MessageType.RequestArgsWithCancellation : MessageType.RequestArgs, req, len);
 		result.writeUInt8(rpcId);
 		result.writeShortString(methodBuff);
 		result.writeLongString(argsBuff);
-		result.writeUInt8(serializedArgs.buffers?.length ?? 0);
-		if (serializedArgs.buffers) {
-			for (const buffer of serializedArgs.buffers) {
-				result.writeBuffer(buffer);
-			}
+		result.writeUInt8(serializedArgs.buffers.length);
+		for (const buffer of serializedArgs.buffers) {
+			result.writeBuffer(buffer);
 		}
 
 		return result.buffer;
@@ -681,26 +678,23 @@ class MessageIO {
 		return buff.readVSBuffer();
 	}
 
-	private static _serializeReplyOKJSON(req: number, res: string, buffers: VSBuffer[] | undefined): VSBuffer {
+	private static _serializeReplyOKJSON(req: number, res: string, buffers: VSBuffer[]): VSBuffer {
 		const resBuff = VSBuffer.fromString(res);
 
 		let len = 0;
 		len += MessageBuffer.sizeUInt8(); // buffer count
 		len += MessageBuffer.sizeLongString(resBuff);
-		if (buffers) {
-			for (const buffer of buffers) {
-				len += MessageBuffer.sizeVSBuffer(buffer);
-			}
+		for (const buffer of buffers) {
+			len += MessageBuffer.sizeVSBuffer(buffer);
 		}
 
 		let result = MessageBuffer.alloc(MessageType.ReplyOKJSON, req, len);
-		result.writeUInt8(buffers?.length ?? 0);
+		result.writeUInt8(buffers.length);
 		result.writeLongString(resBuff);
-		if (buffers) {
-			for (const buffer of buffers) {
-				result.writeBuffer(buffer);
-			}
+		for (const buffer of buffers) {
+			result.writeBuffer(buffer);
 		}
+
 		return result.buffer;
 	}
 
