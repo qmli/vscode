@@ -273,7 +273,7 @@ suite('NotebookKernel', function () {
 				assert.strictEqual(edit.append, false);
 				assert.strictEqual(edit.outputs.length, 1);
 				assert.strictEqual(edit.outputs[0].items.length, 1);
-				assert.deepStrictEqual(edit.outputs[0].items[0].valueBytes, Array.from(new TextEncoder().encode('canceled')));
+				assert.deepStrictEqual(Array.from(edit.outputs[0].items[0].valueBytes.buffer), Array.from(new TextEncoder().encode('canceled')));
 				found = true;
 			}
 		}
@@ -307,7 +307,7 @@ suite('NotebookKernel', function () {
 				assert.strictEqual(edit.append, false);
 				assert.strictEqual(edit.outputs.length, 1);
 				assert.strictEqual(edit.outputs[0].items.length, 1);
-				assert.deepStrictEqual(edit.outputs[0].items[0].valueBytes, Array.from(new TextEncoder().encode('interrupted')));
+				assert.deepStrictEqual(Array.from(edit.outputs[0].items[0].valueBytes.buffer), Array.from(new TextEncoder().encode('interrupted')));
 				found = true;
 			}
 		}

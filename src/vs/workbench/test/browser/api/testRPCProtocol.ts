@@ -9,6 +9,7 @@ import { IExtHostContext } from 'vs/workbench/api/common/extHost.protocol';
 import { isThenable } from 'vs/base/common/async';
 import { IExtHostRpcService } from 'vs/workbench/api/common/extHostRpcService';
 import { ExtensionHostKind } from 'vs/workbench/services/extensions/common/extensions';
+import { parseJsonAndRestoreBufferRefs, stringifyJsonWithBufferRefs } from 'vs/workbench/services/extensions/common/rpcProtocol';
 
 export function SingleProxyRPCProtocol(thing: any): IExtHostContext & IExtHostRpcService {
 	return {
@@ -143,5 +144,6 @@ function simulateWireTransfer<T>(obj: T): T {
 	if (!obj) {
 		return obj;
 	}
-	return JSON.parse(JSON.stringify(obj));
+	const { value, referencedBuffers } = stringifyJsonWithBufferRefs(obj, null);
+	return parseJsonAndRestoreBufferRefs(value, referencedBuffers ?? [], null);
 }

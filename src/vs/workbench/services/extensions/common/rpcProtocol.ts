@@ -543,6 +543,44 @@ class MessageBuffer {
 
 const refSymbolName = '$$ref$$';
 
+export function stringifyJsonWithBufferRefs(obj: any, replacer: JSONStringifyReplacer | null, useSafeStringify = false): { value: string, referencedBuffers: VSBuffer[] | undefined } {
+	const foundBuffers: VSBuffer[] = [];
+	const serialized = (useSafeStringify ? safeStringify : JSON.stringify)(obj, (key, value) => {
+		if (typeof value === 'undefined') {
+			return { [refSymbolName]: -1 }; // JSON.stringify normally converts to 'null'
+		} else if (typeof value === 'object') {
+			if (value instanceof VSBuffer) {
+				const bufferIndex = foundBuffers.push(value) - 1;
+				return { [refSymbolName]: bufferIndex };
+			}
+			if (replacer) {
+				return replacer(key, value);
+			}
+		}
+		return value;
+	});
+	return {
+		value: serialized,
+		referencedBuffers: foundBuffers
+	};
+}
+
+export function parseJsonAndRestoreBufferRefs(jsonString: string, buffers: VSBuffer[], uriTransformer: IURITransformer | null): any {
+	return JSON.parse(jsonString, (_key, value) => {
+		if (value) {
+			const ref = value[refSymbolName];
+			if (typeof ref === 'number') {
+				return buffers[ref];
+			}
+
+			if (uriTransformer && (<MarshalledObject>value).$mid === MarshalledId.Uri) {
+				return uriTransformer.transformIncoming(value);
+			}
+		}
+		return value;
+	});
+}
+
 interface SerializedRequestArguments {
 	readonly args: string;
 	readonly buffers: readonly VSBuffer[] | undefined;
@@ -550,30 +588,8 @@ interface SerializedRequestArguments {
 
 class MessageIO {
 
-	private static serializeWithBufferRefs(obj: any, replacer: JSONStringifyReplacer | null): { value: string, referencedBuffers: VSBuffer[] | undefined } {
-		const foundBuffers: VSBuffer[] = [];
-		const serialized = JSON.stringify(obj, (key, value) => {
-			if (typeof value === 'undefined') {
-				return { [refSymbolName]: -1 }; // JSON.stringify normally converts to 'null'
-			} else if (typeof value === 'object') {
-				if (value instanceof VSBuffer) {
-					const bufferIndex = foundBuffers.push(value) - 1;
-					return { [refSymbolName]: bufferIndex };
-				}
-				if (replacer) {
-					return replacer(key, value);
-				}
-			}
-			return value;
-		});
-		return {
-			value: serialized,
-			referencedBuffers: foundBuffers
-		};
-	}
-
 	public static serializeRequestArguments(args: any[], replacer: JSONStringifyReplacer | null): SerializedRequestArguments {
-		const { value, referencedBuffers } = this.serializeWithBufferRefs(args, replacer);
+		const { value, referencedBuffers } = stringifyJsonWithBufferRefs(args, replacer);
 		return {
 			args: value,
 			buffers: referencedBuffers
@@ -609,22 +625,6 @@ class MessageIO {
 		return result.buffer;
 	}
 
-	private static parseJsonAndRestoreBufferRefs(jsonString: string, buffers: VSBuffer[], uriTransformer: IURITransformer | null): any {
-		return JSON.parse(jsonString, (_key, value) => {
-			if (value) {
-				const ref = value[refSymbolName];
-				if (typeof ref === 'number') {
-					return buffers[ref];
-				}
-
-				if (uriTransformer && (<MarshalledObject>value).$mid === MarshalledId.Uri) {
-					return uriTransformer.transformIncoming(value);
-				}
-			}
-			return value;
-		});
-	}
-
 	public static deserializeRequest(buff: MessageBuffer, uriTransformer: IURITransformer | null): { rpcId: number; method: string; args: any[]; } {
 		const rpcId = buff.readUInt8();
 		const method = buff.readShortString();
@@ -636,7 +636,7 @@ class MessageIO {
 			buffers.push(buff.readVSBuffer());
 		}
 
-		const args = MessageIO.parseJsonAndRestoreBufferRefs(rawargs, buffers, uriTransformer);
+		const args = parseJsonAndRestoreBufferRefs(rawargs, buffers, uriTransformer);
 		return {
 			rpcId: rpcId,
 			method: method,
@@ -660,7 +660,7 @@ class MessageIO {
 			return this._serializeReplyOKVSBuffer(req, res);
 		}
 
-		const { value, referencedBuffers } = this.serializeWithBufferRefs(res, replacer);
+		const { value, referencedBuffers } = stringifyJsonWithBufferRefs(res, replacer, true);
 		return this._serializeReplyOKJSON(req, value, referencedBuffers);
 	}
 
@@ -713,7 +713,7 @@ class MessageIO {
 			buffers.push(buff.readVSBuffer());
 		}
 
-		return MessageIO.parseJsonAndRestoreBufferRefs(res, buffers, uriTransformer);
+		return parseJsonAndRestoreBufferRefs(res, buffers, uriTransformer);
 	}
 
 	public static serializeReplyErr(req: number, err: any): VSBuffer {
