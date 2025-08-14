@@ -656,14 +656,26 @@ function processZhLocale(appLocale: string): string {
 		// so we can easily determine whether to use Simplified or Traditional.
 		// However, on Linux, Chinese languages returned by that same API
 		// are of the form zh-XY, where XY is a country code.
-		// For China (CN), Singapore (SG), and Malaysia (MY)
-		// country codes, assume they use Simplified Chinese.
-		// For other cases, assume they use Traditional.
-		if (['hans', 'cn', 'sg', 'my'].includes(region)) {
+		
+		// Handle bare "zh" without region - default to Simplified Chinese
+		// as it's more commonly used globally
+		if (!region) {
 			return 'zh-cn';
 		}
 
-		return 'zh-tw';
+		// Regions that use Simplified Chinese
+		if (['hans', 'cn', 'sg', 'my'].includes(region.toLowerCase())) {
+			return 'zh-cn';
+		}
+
+		// Regions that explicitly use Traditional Chinese
+		if (['hant', 'tw', 'hk', 'mo'].includes(region.toLowerCase())) {
+			return 'zh-tw';
+		}
+
+		// For any other Chinese regions, default to Simplified Chinese
+		// as it's more widely used
+		return 'zh-cn';
 	}
 
 	return appLocale;
